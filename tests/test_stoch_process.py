@@ -1,6 +1,9 @@
+import copy
 import numpy as np
 import pandas as pd
 import pytest
+from scipy.stats import pearsonr
+
 from src.stoch_process_base import Brownian_Motion, OU_Process, OU_Params
 
 
@@ -95,6 +98,16 @@ class Test_Brownian_Motion:
 
 
 class Test_OU_Process:
+    def get_avg_corr(sim_arr):
+        return (
+            pd.DataFrame(np.corrcoef(np.diff(sim_arr, axis=0), rowvar=False))
+            .reset_index(drop=False)
+            .melt(id_vars=["index"])
+            .groupby("variable")
+            .agg({"value": "mean"})["value"]
+            .mean()
+        )
+
     def test_get_ou_process(self):
 
         intervals = 1000
@@ -141,10 +154,45 @@ class Test_OU_Process:
         ou_params = OU_Params(mean_reversion=0.4, asymptotic_mean=4, std_dev=3)
 
         corr = 0.9
-        n_proc = 100
+        n_proc = 10
 
         ou_sims = ou_proc.get_corr_OU_procs(
             intervals, ou_params, brw_motion, n_proc, corr
         )
 
         assert (intervals, n_proc) == ou_sims.shape
+
+        larger_corr = Test_OU_Process.get_avg_corr(ou_sims)
+
+        ou_sims_less_corr = ou_proc.get_corr_OU_procs(
+            intervals, ou_params, brw_motion, n_proc, corr / 2
+        )
+
+        smaller_corr = Test_OU_Process.get_avg_corr(ou_sims_less_corr)
+
+        assert larger_corr > smaller_corr
+
+    def test_ou_corr_multiple(self):
+
+        intervals = 1000
+        brw_motion = Brownian_Motion(seed=91234)
+        ou_proc = OU_Process()
+
+        ou_param_list = [OU_Params(mean_reversion=0.1, asymptotic_mean=4, std_dev=3)]
+        for i in np.arange(0.05, 0.25, 0.05):
+
+            new_param = copy.deepcopy(ou_param_list[0])
+
+            new_param.mean_reversion += i
+            new_param.asymptotic_mean += i
+            new_param.std_dev += i
+
+            ou_param_list.append(new_param)
+
+        corr = 0.9
+
+        ou_sims = ou_proc.get_corr_OU_procs(intervals, ou_param_list, brw_motion, corr)
+
+        assert (intervals, len(ou_param_list)) == ou_sims.shape
+
+        multi_param_corr = Test_OU_Process.get_avg_corr(ou_sims)

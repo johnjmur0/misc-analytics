@@ -1,4 +1,4 @@
-from typing import Optional, Union
+from typing import Optional, Union, List
 from dataclasses import dataclass
 from sklearn.linear_model import LinearRegression
 import numpy as np
@@ -116,21 +116,26 @@ class OU_Process:
         OU_procs = []
         for i in range(_n_procs):
 
-            if isinstance(OU_Params, tuple):
+            if isinstance(OU_params, list):
                 OU_params_i = OU_params[i]
             else:
                 OU_params_i = OU_params
 
             dW_i = corr_dWs[:, i]
-            OU_procs.append(self.get_OU_process(intervals, OU_params_i, dW_i))
+
+            ou_sim = self.get_OU_process(intervals, OU_params_i, dW_i)
+            if any(np.isnan(ou_sim)):
+                raise ValueError(f"{OU_params_i}, {i}/{_n_procs} had NAs. Failing")
+
+            OU_procs.append(ou_sim)
 
         return np.asarray(OU_procs).T
 
     def _get_n_procs(
-        self, OU_params: Union[OU_Params, tuple[OU_Params, ...]], n_procs: Optional[int]
+        self, OU_params: Union[OU_Params, List[OU_Params]], n_procs: Optional[int]
     ) -> int:
 
-        if isinstance(OU_params, tuple):
+        if isinstance(OU_params, list):
             return len(OU_params)
         elif n_procs is None:
             raise ValueError("If OU_params is not tuple, n_procs must be specified")
