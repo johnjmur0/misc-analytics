@@ -210,3 +210,22 @@ class CIR_Process:
             sigma_t.append(sigma_t[t - 1] + dsigma_t)
 
         return np.asarray(sigma_t)
+
+    def estimate_CIR_params(self, sigma_t: np.ndarray) -> CIR_Params:
+
+        sigma_sqrt = np.sqrt(sigma_t[:-1])
+        y = np.diff(sigma_t) / sigma_sqrt
+        x1 = 1.0 / sigma_sqrt
+        x2 = sigma_sqrt
+        X = np.concatenate([x1.reshape(-1, 1), x2.reshape(-1, 1)], axis=1)
+
+        reg = LinearRegression(fit_intercept=False)
+        reg.fit(X, y)
+
+        ab = reg.coef_[0]
+        a = -reg.coef_[1]
+        b = ab / a
+
+        y_hat = reg.predict(X)
+        c = np.std(y - y_hat)
+        return CIR_Params(mean_reversion=a, asymptotic_mean=b, std_dev=c)

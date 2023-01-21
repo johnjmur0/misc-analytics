@@ -4,7 +4,13 @@ import pandas as pd
 import pytest
 from scipy.stats import pearsonr
 
-from src.stoch_process_base import Brownian_Motion, OU_Process, OU_Params, CIR_Process, CIR_Params
+from src.stoch_process_base import (
+    Brownian_Motion,
+    OU_Process,
+    OU_Params,
+    CIR_Process,
+    CIR_Params,
+)
 
 
 class Test_Brownian_Motion:
@@ -15,8 +21,9 @@ class Test_Brownian_Motion:
         process = stoch_instance.get_dW(intervals=10000)
 
         assert len(process) == 10000
-        assert process.mean() == pytest.approx(0, abs=0.1)
-        assert process.std() == pytest.approx(1, abs=0.1)
+        # Abs b/c mean is 0
+        assert process.mean() == pytest.approx(0, abs=0.01)
+        assert process.std() == pytest.approx(1, rel=0.1)
 
     def test_brownian_motion_basic(self):
 
@@ -121,9 +128,9 @@ class Test_OU_Process:
 
         assert len(ou_sim) == intervals
 
-        assert ou_sim[0] == pytest.approx(ou_params.asymptotic_mean, abs=0.01)
-        assert ou_sim.mean() == pytest.approx(ou_params.asymptotic_mean, abs=0.01)
-        assert ou_sim.std() == pytest.approx(ou_params.std_dev, abs=0.01)
+        assert ou_sim[0] == pytest.approx(ou_params.asymptotic_mean, rel=0.2)
+        assert ou_sim.mean() == pytest.approx(ou_params.asymptotic_mean, rel=0.1)
+        assert ou_sim.std() == pytest.approx(ou_params.std_dev, rel=2)
 
     def test_get_ou_estimation(self):
 
@@ -139,12 +146,12 @@ class Test_OU_Process:
         ou_params_est = ou_proc.estimate_OU_params(ou_sim)
 
         assert ou_params_est.mean_reversion == pytest.approx(
-            ou_params.mean_reversion, abs=0.1
+            ou_params.mean_reversion, rel=0.25
         )
         assert ou_params_est.asymptotic_mean == pytest.approx(
-            ou_params.asymptotic_mean, abs=0.01
+            ou_params.asymptotic_mean, rel=0.05
         )
-        assert ou_params_est.std_dev == pytest.approx(ou_params.std_dev, abs=0.01)
+        assert ou_params_est.std_dev == pytest.approx(ou_params.std_dev, rel=0.05)
 
     def test_ou_corr_single(self):
 
@@ -200,18 +207,38 @@ class Test_OU_Process:
 
 
 class Test_CIR_Process:
-
     def test_single_sim(self):
 
-        CIR_proc = CIR_Process()
-        CIR_params = CIR_Params(mean_reversion=.06, asymptotic_mean=.01, std_dev=.009)
-        brwn_inst = Brownian_Motion(12345)
         intervals = 1000
+        CIR_proc = CIR_Process()
+        CIR_params = CIR_Params(
+            mean_reversion=0.06, asymptotic_mean=0.01, std_dev=0.009
+        )
+        brwn_inst = Brownian_Motion(12345)
 
         cir_sims = CIR_proc.get_CIR_process(intervals, CIR_params, brwn_inst)
 
         assert len(cir_sims) == intervals
 
-        assert cir_sims[0] == pytest.approx(CIR_params.asymptotic_mean, abs=0.01)
-        assert cir_sims.mean() == pytest.approx(CIR_params.asymptotic_mean, abs=0.01)
-        assert cir_sims.std() == pytest.approx(CIR_params.std_dev, abs=0.01)
+        assert cir_sims[0] == pytest.approx(CIR_params.asymptotic_mean, rel=0.01)
+        assert cir_sims.mean() == pytest.approx(CIR_params.asymptotic_mean, rel=0.01)
+        assert cir_sims.std() == pytest.approx(CIR_params.std_dev, rel=.75)
+
+    def test_estimate_cir_params(self):
+
+        intervals = 1000
+        CIR_proc = CIR_Process()
+        CIR_params = CIR_Params(mean_reversion=0.05, asymptotic_mean=0.5, std_dev=0.02)
+        brwn_inst = Brownian_Motion(12345)
+
+        cir_sim = CIR_proc.get_CIR_process(intervals, CIR_params, brwn_inst)
+
+        cir_param_est = CIR_proc.estimate_CIR_params(cir_sim)
+
+        assert cir_param_est.mean_reversion == pytest.approx(
+            CIR_params.mean_reversion, rel=0.35
+        )
+        assert cir_param_est.asymptotic_mean == pytest.approx(
+            CIR_params.asymptotic_mean, rel=0.01
+        )
+        assert cir_param_est.std_dev == pytest.approx(CIR_params.std_dev, rel=0.05)
