@@ -1,4 +1,4 @@
-from typing import Optional, Union, List
+from typing import Optional, Union, List, NoReturn, Any
 from dataclasses import dataclass
 from sklearn.linear_model import LinearRegression
 import numpy as np
@@ -103,13 +103,14 @@ class OU_Process:
         self,
         intervals: int,
         OU_params: Union[OU_Params, tuple[OU_Params, ...]],
-        brownian_motion_instance: Brownian_Motion,
+        brownian_motion_inst: Brownian_Motion,
         n_procs: Optional[int] = None,
         proc_correlation: Optional[float] = None,
     ) -> np.ndarray:
 
         _n_procs = self._get_n_procs(OU_params, n_procs)
-        corr_dWs = brownian_motion_instance.get_corr_dW_matrix(
+
+        corr_dWs = brownian_motion_inst.get_corr_dW_matrix(
             intervals, _n_procs, proc_correlation
         )
 
@@ -153,3 +154,59 @@ class OU_Process:
         exp_alpha_s = np.exp(OU_params.mean_reversion * intervals)
         integral_W = np.cumsum(exp_alpha_s * dW)
         return integral_W
+
+
+@dataclass
+class CIR_Params:
+
+    mean_reversion: float
+    asymptotic_mean: float
+    std_dev: float
+
+    # NOTE super fun, haven't seen post_init before!
+    def __post_init__(self) -> Optional[NoReturn]:
+        if 2 * self.mean_reversion * self.asymptotic_mean < self.std_dev**2:
+            raise ValueError("2ab has to be less than or equal to c^2.")
+        return None
+
+
+class CIR_Process:
+    def _validate_not_nan(self, dsigma_t: Any) -> Optional[NoReturn]:
+        if np.isnan(dsigma_t):
+            raise ValueError(
+                "CIR process simulation crashed, check your CIR_params. "
+                + "Maybe choose a smaller c value."
+            )
+        return None
+
+    def get_CIR_process(
+        self,
+        intervals: int,
+        CIR_params: CIR_Params,
+        brownian_motion_inst: Brownian_Motion,
+        sigma_0: Optional[float] = None,
+    ) -> np.ndarray:
+
+        dW = brownian_motion_inst.get_dW(intervals)
+        return self._generate_CIR_process(dW, CIR_params, sigma_0)
+
+    def _generate_CIR_process(
+        self, dW: np.ndarray, CIR_params: CIR_Params, sigma_0: Optional[float] = None
+    ) -> np.ndarray:
+
+        if sigma_0 is None:
+            sigma_0 = CIR_params.asymptotic_mean
+
+        sigma_t = [sigma_0]
+        for t in range(1, len(dW)):
+
+            dsigma_t = (
+                CIR_params.mean_reversion
+                * (CIR_params.asymptotic_mean - sigma_t[t - 1])
+                + CIR_params.std_dev * np.sqrt(sigma_t[t - 1]) * dW[t]
+            )
+
+            self._validate_not_nan(dsigma_t)
+            sigma_t.append(sigma_t[t - 1] + dsigma_t)
+
+        return np.asarray(sigma_t)

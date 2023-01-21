@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 from scipy.stats import pearsonr
 
-from src.stoch_process_base import Brownian_Motion, OU_Process, OU_Params
+from src.stoch_process_base import Brownian_Motion, OU_Process, OU_Params, CIR_Process, CIR_Params
 
 
 class Test_Brownian_Motion:
@@ -195,4 +195,23 @@ class Test_OU_Process:
 
         assert (intervals, len(ou_param_list)) == ou_sims.shape
 
+        # TODO don't remember where I was going with this test?
         multi_param_corr = Test_OU_Process.get_avg_corr(ou_sims)
+
+
+class Test_CIR_Process:
+
+    def test_single_sim(self):
+
+        CIR_proc = CIR_Process()
+        CIR_params = CIR_Params(mean_reversion=.06, asymptotic_mean=.01, std_dev=.009)
+        brwn_inst = Brownian_Motion(12345)
+        intervals = 1000
+
+        cir_sims = CIR_proc.get_CIR_process(intervals, CIR_params, brwn_inst)
+
+        assert len(cir_sims) == intervals
+
+        assert cir_sims[0] == pytest.approx(CIR_params.asymptotic_mean, abs=0.01)
+        assert cir_sims.mean() == pytest.approx(CIR_params.asymptotic_mean, abs=0.01)
+        assert cir_sims.std() == pytest.approx(CIR_params.std_dev, abs=0.01)
