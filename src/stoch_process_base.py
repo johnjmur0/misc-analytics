@@ -1,7 +1,16 @@
+from abc import ABC, abstractmethod
 from typing import Optional, Union, List, NoReturn, Any
 from dataclasses import dataclass
 from sklearn.linear_model import LinearRegression
 import numpy as np
+
+
+@dataclass
+class Stochastic_Params_Base:
+
+    mean_reversion: float
+    asymptotic_mean: float
+    std_dev: float
 
 
 class Brownian_Motion:
@@ -55,19 +64,99 @@ class Brownian_Motion:
         return dWs[random_proc_idx]
 
 
-@dataclass
-class OU_Params:
+class Stocashtic_Process_Base(ABC):
+    def __init__(
+        self,
+        seed: float,
+        param_obj: Union[Stochastic_Params_Base, List[Stochastic_Params_Base]],
+    ):
 
-    mean_reversion: float
-    asymptotic_mean: float
-    std_dev: float
+        brwn_inst = Brownian_Motion(seed)
+        self.brownian_motion = brwn_inst
+        self.model_params = param_obj
 
+    @property
+    def brownian_motion(self):
+        return self._brownian_motion
 
-class OU_Process:
-    def get_OU_process(
+    @brownian_motion.setter
+    def brownian_motion(self, brwn_inst: Brownian_Motion):
+        self._brownian_motion = brwn_inst
+
+    @property
+    def model_params(self):
+        return self._model_params
+
+    @model_params.setter
+    def model_params(
+        self, model_params: Union[Stochastic_Params_Base, List[Stochastic_Params_Base]]
+    ):
+        self._model_params = model_params
+
+    @abstractmethod
+    def estimate_params(self, time_series: np.ndarray) -> Stochastic_Params_Base:
+        raise NotImplementedError("Must be implemented in sub-class")
+
+    @abstractmethod
+    def create_sim(
         self,
         intervals: int,
-        OU_params: OU_Params,
+        stoch_params: Stochastic_Params_Base,
+        dW: np.array,
+        X_0: Optional[float] = None,
+    ) -> np.ndarray:
+        raise NotImplementedError("Must be implemented in sub-class")
+
+    def create_correlated_sims(
+        self,
+        intervals: int,
+        n_procs: Optional[int] = None,
+        proc_correlation: Optional[float] = None,
+    ) -> np.ndarray:
+
+        _n_procs = self._get_n_procs(self.model_params, n_procs)
+
+        corr_dWs = self.brownian_motion.get_corr_dW_matrix(
+            intervals, _n_procs, proc_correlation
+        )
+
+        sim_list = []
+        for i in range(_n_procs):
+
+            if isinstance(self.model_params, list):
+                sim_params_i = self.model_params[i]
+            else:
+                sim_params_i = self.model_params
+
+            dW_i = corr_dWs[:, i]
+
+            ou_sim = self.create_sim(intervals, sim_params_i, dW_i)
+
+            if any(np.isnan(ou_sim)):
+                raise ValueError(f"{sim_params_i}, {i}/{_n_procs} had NAs. Failing")
+
+            sim_list.append(ou_sim)
+
+        return np.asarray(sim_list).T
+
+    def _get_n_procs(
+        self,
+        stoch_params: Union[Stochastic_Params_Base, List[Stochastic_Params_Base]],
+        n_procs: Optional[int],
+    ) -> int:
+
+        if isinstance(stoch_params, list):
+            return len(stoch_params)
+        elif n_procs is None:
+            raise ValueError("If stoch_params is not tuple, n_procs must be specified")
+        return n_procs
+
+
+class OU_Process(Stocashtic_Process_Base):
+    def create_sim(
+        self,
+        intervals: int,
+        OU_params: Stochastic_Params_Base,
         dW: np.array,
         X_0: Optional[float] = None,
     ) -> np.array:
@@ -84,7 +173,7 @@ class OU_Process:
             + OU_params.std_dev * exp_alpha_t * integral_W
         )
 
-    def estimate_OU_params(self, X_t: np.ndarray) -> OU_Params:
+    def estimate_params(self, X_t: np.ndarray) -> Stochastic_Params_Base:
 
         y = np.diff(X_t)
         X = X_t[:-1].reshape(-1, 1)
@@ -97,58 +186,19 @@ class OU_Process:
         y_hat = reg.predict(X)
         beta = np.std(y - y_hat)
 
-        return OU_Params(mean_reversion=alpha, asymptotic_mean=gamma, std_dev=beta)
-
-    def get_corr_OU_procs(
-        self,
-        intervals: int,
-        OU_params: Union[OU_Params, List[OU_Params]],
-        brownian_motion_inst: Brownian_Motion,
-        n_procs: Optional[int] = None,
-        proc_correlation: Optional[float] = None,
-    ) -> np.ndarray:
-
-        _n_procs = self._get_n_procs(OU_params, n_procs)
-
-        corr_dWs = brownian_motion_inst.get_corr_dW_matrix(
-            intervals, _n_procs, proc_correlation
+        return Stochastic_Params_Base(
+            mean_reversion=alpha, asymptotic_mean=gamma, std_dev=beta
         )
 
-        OU_procs = []
-        for i in range(_n_procs):
-
-            if isinstance(OU_params, list):
-                OU_params_i = OU_params[i]
-            else:
-                OU_params_i = OU_params
-
-            dW_i = corr_dWs[:, i]
-
-            ou_sim = self.get_OU_process(intervals, OU_params_i, dW_i)
-            if any(np.isnan(ou_sim)):
-                raise ValueError(f"{OU_params_i}, {i}/{_n_procs} had NAs. Failing")
-
-            OU_procs.append(ou_sim)
-
-        return np.asarray(OU_procs).T
-
-    def _get_n_procs(
-        self, OU_params: Union[OU_Params, List[OU_Params]], n_procs: Optional[int]
-    ) -> int:
-
-        if isinstance(OU_params, list):
-            return len(OU_params)
-        elif n_procs is None:
-            raise ValueError("If OU_params is not tuple, n_procs must be specified")
-        return n_procs
-
-    def _select_X_0(X_0_in: Optional[float], OU_params: OU_Params) -> float:
+    def _select_X_0(
+        X_0_in: Optional[float], OU_params: Stochastic_Params_Base
+    ) -> float:
         if X_0_in is not None:
             return X_0_in
         return OU_params.asymptotic_mean
 
     def _get_integal_W(
-        intervals: np.ndarray, dW: np.ndarray, OU_params: OU_Params
+        intervals: np.ndarray, dW: np.ndarray, OU_params: Stochastic_Params_Base
     ) -> np.ndarray:
 
         exp_alpha_s = np.exp(OU_params.mean_reversion * intervals)
@@ -157,11 +207,7 @@ class OU_Process:
 
 
 @dataclass
-class CIR_Params(OU_Params):
-
-    # mean_reversion: float
-    # asymptotic_mean: float
-    # std_dev: float
+class CIR_Params(Stochastic_Params_Base):
 
     # NOTE super fun, haven't seen post_init before!
     def __post_init__(self) -> Optional[NoReturn]:
@@ -170,7 +216,7 @@ class CIR_Params(OU_Params):
         return None
 
 
-class CIR_Process:
+class CIR_Process(Stocashtic_Process_Base):
     def _validate_not_nan(self, dsigma_t: Any) -> Optional[NoReturn]:
         if np.isnan(dsigma_t):
             raise ValueError(
@@ -179,15 +225,14 @@ class CIR_Process:
             )
         return None
 
-    def get_CIR_process(
+    def create_sim(
         self,
         intervals: int,
         CIR_params: CIR_Params,
-        brownian_motion_inst: Brownian_Motion,
+        dW: np.array,
         sigma_0: Optional[float] = None,
     ) -> np.ndarray:
 
-        dW = brownian_motion_inst.get_dW(intervals)
         return self._generate_CIR_process(dW, CIR_params, sigma_0)
 
     def _generate_CIR_process(
@@ -211,7 +256,7 @@ class CIR_Process:
 
         return np.asarray(sigma_t)
 
-    def estimate_CIR_params(self, sigma_t: np.ndarray) -> CIR_Params:
+    def estimate_params(self, sigma_t: np.ndarray) -> CIR_Params:
 
         sigma_sqrt = np.sqrt(sigma_t[:-1])
         y = np.diff(sigma_t) / sigma_sqrt
@@ -229,43 +274,3 @@ class CIR_Process:
         y_hat = reg.predict(X)
         c = np.std(y - y_hat)
         return CIR_Params(mean_reversion=a, asymptotic_mean=b, std_dev=c)
-
-    # TODO this is so similar to OU process, abstract into base class once sure of differences
-    def get_corr_CIR_procs(
-        self,
-        intervals: int,
-        CIR_params: Union[CIR_Params, List[CIR_Params]],
-        brownian_motion: Brownian_Motion,
-        n_procs: Optional[int] = None,
-        corr: Optional[float] = None,
-    ) -> np.ndarray:
-
-        _n_procs = self._get_n_procs(CIR_params, n_procs)
-
-        corr_dWs = brownian_motion.get_corr_dW_matrix(intervals, _n_procs, corr)
-
-        CIR_procs = []
-        for i in range(_n_procs):
-
-            if isinstance(CIR_params, list):
-                CIR_params_i = CIR_params[i]
-            else:
-                CIR_params_i = CIR_params
-
-            dW_i = corr_dWs[:, i]
-
-            cir_sim = self._generate_CIR_process(dW_i, CIR_params_i)
-
-            CIR_procs.append(cir_sim)
-
-        return np.asarray(CIR_procs).T
-
-    def _get_n_procs(
-        self, CIR_params: Union[CIR_Params, List[CIR_Params]], n_procs: Optional[int]
-    ) -> int:
-
-        if isinstance(CIR_params, list):
-            return len(CIR_params)
-        elif n_procs is None:
-            raise ValueError("If CIR_params is not tuple, n_procs cannot be None.")
-        return n_procs
