@@ -102,7 +102,7 @@ class OU_Process:
     def get_corr_OU_procs(
         self,
         intervals: int,
-        OU_params: Union[OU_Params, tuple[OU_Params, ...]],
+        OU_params: Union[OU_Params, List[OU_Params]],
         brownian_motion_inst: Brownian_Motion,
         n_procs: Optional[int] = None,
         proc_correlation: Optional[float] = None,
@@ -157,11 +157,11 @@ class OU_Process:
 
 
 @dataclass
-class CIR_Params:
+class CIR_Params(OU_Params):
 
-    mean_reversion: float
-    asymptotic_mean: float
-    std_dev: float
+    # mean_reversion: float
+    # asymptotic_mean: float
+    # std_dev: float
 
     # NOTE super fun, haven't seen post_init before!
     def __post_init__(self) -> Optional[NoReturn]:
@@ -229,3 +229,43 @@ class CIR_Process:
         y_hat = reg.predict(X)
         c = np.std(y - y_hat)
         return CIR_Params(mean_reversion=a, asymptotic_mean=b, std_dev=c)
+
+    # TODO this is so similar to OU process, abstract into base class once sure of differences
+    def get_corr_CIR_procs(
+        self,
+        intervals: int,
+        CIR_params: Union[CIR_Params, List[CIR_Params]],
+        brownian_motion: Brownian_Motion,
+        n_procs: Optional[int] = None,
+        corr: Optional[float] = None,
+    ) -> np.ndarray:
+
+        _n_procs = self._get_n_procs(CIR_params, n_procs)
+
+        corr_dWs = brownian_motion.get_corr_dW_matrix(intervals, _n_procs, corr)
+
+        CIR_procs = []
+        for i in range(_n_procs):
+
+            if isinstance(CIR_params, list):
+                CIR_params_i = CIR_params[i]
+            else:
+                CIR_params_i = CIR_params
+
+            dW_i = corr_dWs[:, i]
+
+            cir_sim = self._generate_CIR_process(dW_i, CIR_params_i)
+
+            CIR_procs.append(cir_sim)
+
+        return np.asarray(CIR_procs).T
+
+    def _get_n_procs(
+        self, CIR_params: Union[CIR_Params, List[CIR_Params]], n_procs: Optional[int]
+    ) -> int:
+
+        if isinstance(CIR_params, list):
+            return len(CIR_params)
+        elif n_procs is None:
+            raise ValueError("If CIR_params is not tuple, n_procs cannot be None.")
+        return n_procs

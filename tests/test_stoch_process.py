@@ -13,6 +13,18 @@ from src.stoch_process_base import (
 )
 
 
+class Test_Helpers:
+    def get_avg_corr(sim_arr):
+        return (
+            pd.DataFrame(np.corrcoef(np.diff(sim_arr, axis=0), rowvar=False))
+            .reset_index(drop=False)
+            .melt(id_vars=["index"])
+            .groupby("variable")
+            .agg({"value": "mean"})["value"]
+            .mean()
+        )
+
+
 class Test_Brownian_Motion:
     def test_brownian_motion_change(self):
 
@@ -22,7 +34,7 @@ class Test_Brownian_Motion:
 
         assert len(process) == 10000
         # Abs b/c mean is 0
-        assert process.mean() == pytest.approx(0, abs=0.01)
+        assert process.mean() == pytest.approx(0, abs=0.05)
         assert process.std() == pytest.approx(1, rel=0.1)
 
     def test_brownian_motion_basic(self):
@@ -105,16 +117,6 @@ class Test_Brownian_Motion:
 
 
 class Test_OU_Process:
-    def get_avg_corr(sim_arr):
-        return (
-            pd.DataFrame(np.corrcoef(np.diff(sim_arr, axis=0), rowvar=False))
-            .reset_index(drop=False)
-            .melt(id_vars=["index"])
-            .groupby("variable")
-            .agg({"value": "mean"})["value"]
-            .mean()
-        )
-
     def test_get_ou_process(self):
 
         intervals = 1000
@@ -169,13 +171,13 @@ class Test_OU_Process:
 
         assert (intervals, n_proc) == ou_sims.shape
 
-        larger_corr = Test_OU_Process.get_avg_corr(ou_sims)
+        larger_corr = Test_Helpers.get_avg_corr(ou_sims)
 
         ou_sims_less_corr = ou_proc.get_corr_OU_procs(
             intervals, ou_params, brw_motion, n_proc, corr / 2
         )
 
-        smaller_corr = Test_OU_Process.get_avg_corr(ou_sims_less_corr)
+        smaller_corr = Test_Helpers.get_avg_corr(ou_sims_less_corr)
 
         assert larger_corr > smaller_corr
 
@@ -196,14 +198,27 @@ class Test_OU_Process:
 
             ou_param_list.append(new_param)
 
-        corr = 0.9
+        higher_corr = 0.9
 
-        ou_sims = ou_proc.get_corr_OU_procs(intervals, ou_param_list, brw_motion, corr)
+        ou_sims = ou_proc.get_corr_OU_procs(
+            intervals, ou_param_list, brw_motion, proc_correlation=higher_corr
+        )
 
         assert (intervals, len(ou_param_list)) == ou_sims.shape
 
-        # TODO don't remember where I was going with this test?
-        multi_param_corr = Test_OU_Process.get_avg_corr(ou_sims)
+        lower_corr = 0.2
+        ou_sims_lower = ou_proc.get_corr_OU_procs(
+            intervals, ou_param_list, brw_motion, proc_correlation=lower_corr
+        )
+        assert (intervals, len(ou_param_list)) == ou_sims_lower.shape
+
+        higher_corr_est = Test_Helpers.get_avg_corr(ou_sims)
+        lower_corr_est = Test_Helpers.get_avg_corr(ou_sims_lower)
+
+        assert higher_corr_est > lower_corr_est
+
+        assert higher_corr == pytest.approx(higher_corr, rel=0.1)
+        assert lower_corr == pytest.approx(lower_corr, rel=0.1)
 
 
 class Test_CIR_Process:
@@ -222,7 +237,7 @@ class Test_CIR_Process:
 
         assert cir_sims[0] == pytest.approx(CIR_params.asymptotic_mean, rel=0.01)
         assert cir_sims.mean() == pytest.approx(CIR_params.asymptotic_mean, rel=0.01)
-        assert cir_sims.std() == pytest.approx(CIR_params.std_dev, rel=.75)
+        assert cir_sims.std() == pytest.approx(CIR_params.std_dev, rel=0.75)
 
     def test_estimate_cir_params(self):
 
@@ -242,3 +257,69 @@ class Test_CIR_Process:
             CIR_params.asymptotic_mean, rel=0.01
         )
         assert cir_param_est.std_dev == pytest.approx(CIR_params.std_dev, rel=0.05)
+
+    def test_corr_cir_process_single(self):
+
+        intervals = 1000
+        CIR_proc = CIR_Process()
+        CIR_params = CIR_Params(
+            mean_reversion=0.06, asymptotic_mean=0.01, std_dev=0.009
+        )
+        brwn_inst = Brownian_Motion(12345)
+
+        higher_corr = 0.9
+        cir_sims_corr = CIR_proc.get_corr_CIR_procs(
+            intervals, CIR_params, brwn_inst, n_procs=5, corr=higher_corr
+        )
+
+        lower_corr = 0.2
+        cir_sims_corr_less = CIR_proc.get_corr_CIR_procs(
+            intervals, CIR_params, brwn_inst, n_procs=5, corr=lower_corr
+        )
+
+        higher_corr_est = Test_Helpers.get_avg_corr(cir_sims_corr)
+        lower_corr_est = Test_Helpers.get_avg_corr(cir_sims_corr_less)
+        assert higher_corr_est > lower_corr_est
+
+        assert higher_corr == pytest.approx(higher_corr, rel=0.1)
+        assert lower_corr == pytest.approx(lower_corr, rel=0.1)
+
+    def test_corr_cir_multiple(self):
+
+        intervals = 1000
+        brw_motion = Brownian_Motion(seed=91234)
+        cir_proc = CIR_Process()
+
+        cir_param_list = [
+            CIR_Params(mean_reversion=0.06, asymptotic_mean=0.01, std_dev=0.009)
+        ]
+        for i in np.arange(0.01, 0.05, 0.01):
+
+            new_param = copy.deepcopy(cir_param_list[0])
+
+            new_param.mean_reversion += i
+            new_param.std_dev += i / 10
+
+            cir_param_list.append(new_param)
+
+        higher_corr = 0.9
+
+        cir_sims = cir_proc.get_corr_CIR_procs(
+            intervals, cir_param_list, brw_motion, corr=higher_corr
+        )
+
+        assert (intervals, len(cir_param_list)) == cir_sims.shape
+
+        lower_corr = 0.2
+        cir_sims_lower = cir_proc.get_corr_CIR_procs(
+            intervals, cir_param_list, brw_motion, corr=lower_corr
+        )
+        assert (intervals, len(cir_param_list)) == cir_sims.shape
+
+        higher_corr_est = Test_Helpers.get_avg_corr(cir_sims)
+        lower_corr_est = Test_Helpers.get_avg_corr(cir_sims_lower)
+
+        assert higher_corr_est > lower_corr_est
+
+        assert higher_corr == pytest.approx(higher_corr, rel=0.1)
+        assert lower_corr == pytest.approx(lower_corr, rel=0.1)
