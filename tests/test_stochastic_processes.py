@@ -4,12 +4,13 @@ import pandas as pd
 import pytest
 from scipy.stats import pearsonr
 
-from src.stoch_process_base import (
+from src.stochastic_process_base import (
     Brownian_Motion,
-    OU_Process,
     Stochastic_Params_Base,
+    OU_Process,
     CIR_Process,
     CIR_Params,
+    Constant_Processes,
 )
 
 
@@ -27,7 +28,6 @@ class Test_Helpers:
 
 class Test_Brownian_Motion:
     def test_brownian_motion_change(self):
-
         stoch_instance = Brownian_Motion(seed=None)
 
         process = stoch_instance.get_dW(intervals=10000)
@@ -38,7 +38,6 @@ class Test_Brownian_Motion:
         assert process.std() == pytest.approx(1, rel=0.1)
 
     def test_brownian_motion_basic(self):
-
         stoch_instance = Brownian_Motion(seed=None)
 
         process = stoch_instance.get_W(intervals=100)
@@ -47,7 +46,6 @@ class Test_Brownian_Motion:
         assert len(process[np.isnan(process)]) == 0
 
     def test_brownian_motion_seed(self):
-
         seed_same = 10
         stoch_instance = Brownian_Motion(seed=seed_same)
         process_1 = stoch_instance.get_W(intervals=100)
@@ -63,7 +61,6 @@ class Test_Brownian_Motion:
         assert process_3.sum() != process_1.sum()
 
     def test_brownian_motion_corr(self):
-
         seed_same = 10
         stoch_instance = Brownian_Motion(seed=seed_same)
         org_process = stoch_instance.get_dW(intervals=100)
@@ -83,7 +80,6 @@ class Test_Brownian_Motion:
         all(org_process * -1 == corr_process_3)
 
     def test_brownian_multiple_corr(self):
-
         seed = 123
         stoch_instance = Brownian_Motion(seed=seed)
 
@@ -118,7 +114,6 @@ class Test_Brownian_Motion:
 
 class Test_OU_Process:
     def test_get_ou_process(self):
-
         intervals = 1000
         ou_params = Stochastic_Params_Base(
             mean_reversion=0.07, asymptotic_mean=0.01, std_dev=0.001
@@ -136,7 +131,6 @@ class Test_OU_Process:
         assert ou_sim.std() == pytest.approx(ou_params.std_dev, rel=2)
 
     def test_get_ou_estimation(self):
-
         intervals = 1000
         ou_params = Stochastic_Params_Base(
             mean_reversion=0.1, asymptotic_mean=0.2, std_dev=0.05
@@ -158,7 +152,6 @@ class Test_OU_Process:
         assert ou_params_est.std_dev == pytest.approx(ou_params.std_dev, rel=0.05)
 
     def test_ou_corr_single(self):
-
         intervals = 1000
         ou_params = Stochastic_Params_Base(
             mean_reversion=0.4, asymptotic_mean=4, std_dev=3
@@ -182,14 +175,12 @@ class Test_OU_Process:
         assert larger_corr > smaller_corr
 
     def test_ou_corr_multiple(self):
-
         intervals = 1000
 
         ou_param_list = [
             Stochastic_Params_Base(mean_reversion=0.1, asymptotic_mean=4, std_dev=3)
         ]
         for i in np.arange(0.05, 0.25, 0.05):
-
             new_param = copy.deepcopy(ou_param_list[0])
 
             new_param.mean_reversion += i
@@ -224,7 +215,6 @@ class Test_OU_Process:
 
 class Test_CIR_Process:
     def test_single_sim(self):
-
         intervals = 1000
         cir_params = CIR_Params(
             mean_reversion=0.06, asymptotic_mean=0.01, std_dev=0.009
@@ -241,7 +231,6 @@ class Test_CIR_Process:
         assert cir_sims.std() == pytest.approx(cir_params.std_dev, rel=0.75)
 
     def test_estimate_cir_params(self):
-
         intervals = 1000
         CIR_params = CIR_Params(mean_reversion=0.05, asymptotic_mean=0.5, std_dev=0.02)
         cir_proc = CIR_Process(seed=12345, param_obj=CIR_params)
@@ -260,7 +249,6 @@ class Test_CIR_Process:
         assert cir_param_est.std_dev == pytest.approx(CIR_params.std_dev, rel=0.05)
 
     def test_corr_cir_process_single(self):
-
         intervals = 1000
         CIR_params = CIR_Params(
             mean_reversion=0.06, asymptotic_mean=0.01, std_dev=0.009
@@ -285,14 +273,12 @@ class Test_CIR_Process:
         assert lower_corr == pytest.approx(lower_corr, rel=0.1)
 
     def test_corr_cir_multiple(self):
-
         intervals = 1000
 
         cir_param_list = [
             CIR_Params(mean_reversion=0.06, asymptotic_mean=0.01, std_dev=0.009)
         ]
         for i in np.arange(0.01, 0.05, 0.01):
-
             new_param = copy.deepcopy(cir_param_list[0])
 
             new_param.mean_reversion += i
@@ -322,3 +308,42 @@ class Test_CIR_Process:
 
         assert higher_corr == pytest.approx(higher_corr, rel=0.1)
         assert lower_corr == pytest.approx(lower_corr, rel=0.1)
+
+
+class Test_Constant_Process:
+    def test_single_constant(self):
+        intervals = 1000
+        constants = 1
+        n_procs = 3
+
+        const_proc = Constant_Processes(intervals, constants=constants, n_procs=n_procs)
+        process_matrix = const_proc.get_proc()
+
+        n_rows, n_columns = process_matrix.shape
+        assert n_rows == intervals
+        assert n_columns == n_procs
+
+        for col in range(0, n_columns):
+            assert set(process_matrix[:, col]) == {constants}
+
+    def test_multiple_constant(self):
+        intervals = 1000
+        constants = [1.0, 2.0, 3.0]
+        n_procs = 3
+
+        const_proc = Constant_Processes(intervals, constants=constants, n_procs=n_procs)
+        process_matrix = const_proc.get_proc()
+
+        n_rows, n_columns = process_matrix.shape
+        assert n_rows == intervals
+        assert n_columns == n_procs
+
+        for col in range(0, n_columns):
+            assert set(process_matrix[:, col]) == {constants[col]}
+
+    def test_fail_constants_len(self):
+        expected_error = "If constants is List, n_procs must match List length."
+
+        with pytest.raises(ValueError) as exec_info:
+            Constant_Processes(1, constants=[1, 2], n_procs=4)
+        assert str(exec_info.value) == expected_error
