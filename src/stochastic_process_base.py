@@ -369,7 +369,7 @@ class Random_Init_P:
 
     def _validate_bounds(self) -> Optional[NoReturn]:
         if self.lower_bound <= 0 or self.upper_bound <= 0:
-            raise ValueError("bounds have to be strictly positive ")
+            raise ValueError("bounds have to be strictly positive.")
         if self.lower_bound >= self.upper_bound:
             raise ValueError("upper bound has to be larger than lower_bound.")
         return None
@@ -382,11 +382,69 @@ class Data_Init_P:
 
     @property
     def n_procs(self) -> int:
-        return self.P_data.shape[1]
+        shape_val = len(self.P_data.shape)
+        return self.P_data.shape[1] if shape_val > 1 else 1
 
     def get_P_0(self, random_state: Optional[int] = None) -> np.ndarray:
         if self.last_P:
             row_idx = -1
         else:
             row_idx = 0
-        return self.P_data[row_idx, :]
+        return self.P_data[row_idx, :] if self.n_procs > 1 else self.P_data[row_idx]
+
+
+class Generic_Geometric_Brownian_Motion:
+    def __init__(
+        self,
+        drift: Drift,
+        sigma: Sigma,
+        init_P: Init_P,
+        rho: Optional[float] = None,
+        random_state: Optional[int] = None,
+    ) -> None:
+        self.drift = drift
+        self.sigma = sigma
+        self.init_P = init_P
+        self.rho = rho
+        self.random_state = random_state
+
+        self._validate_drift_sigma_init_P()
+        self.intervals, self.n_procs = self.drift.sample_size, self.drift.n_procs
+        self.brownian_motion = Brownian_Motion(seed=random_state)
+
+    def get_P(self) -> np.ndarray:
+        sigmas = self.sigma.get_sigma(self.random_state)
+        time_integrals = self._get_time_integrals(sigmas, self.random_state)
+        W_integrals = self._get_W_integrals(sigmas, self.random_state)
+        P_0s = self.init_P.get_P_0(self.random_state)
+        return P_0s[None, :] * np.exp(time_integrals + W_integrals)
+
+    def _get_time_integrals(
+        self, sigmas: np.ndarray, random_state: Optional[int]
+    ) -> np.ndarray:
+        mus = self.drift.get_mu(random_state)
+        integrals = np.cumsum(mus - sigmas**2 / 2, axis=0)
+        return np.insert(integrals, 0, np.zeros(mus.shape[1]), axis=0)[:-1]
+
+    def _get_W_integrals(
+        self, sigmas: np.ndarray, random_state: Optional[int]
+    ) -> np.ndarray:
+        dWs = self.brownian_motion.get_corr_dW_matrix(
+            self.intervals, self.n_procs, self.rho, random_state
+        )
+        integrals = np.cumsum(sigmas * dWs, axis=0)
+        return np.insert(integrals, 0, np.zeros(dWs.shape[1]), axis=0)[:-1]
+
+    def _validate_drift_sigma_init_P(self) -> Optional[NoReturn]:
+        if (
+            self.drift.n_procs != self.sigma.n_procs
+            or self.drift.n_procs != self.init_P.n_procs
+        ):
+            raise ValueError(
+                "n_procs for both drift, sigma and init_P has to be the same!"
+            )
+        elif self.drift.sample_size != self.sigma.sample_size:
+            raise ValueError(
+                "sample size T for both drift and sigma has to be the same!"
+            )
+        return None

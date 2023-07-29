@@ -11,6 +11,9 @@ from src.stochastic_process_base import (
     CIR_Process,
     CIR_Params,
     Constant_Processes,
+    Random_Init_P,
+    Data_Init_P,
+    Generic_Geometric_Brownian_Motion,
 )
 
 
@@ -347,3 +350,48 @@ class Test_Constant_Process:
         with pytest.raises(ValueError) as exec_info:
             Constant_Processes(1, constants=[1, 2], n_procs=4)
         assert str(exec_info.value) == expected_error
+
+    def test_random_init_p(self):
+        lower_bound = 2_000
+        upper_bound = 10_000
+        n_procs = 4
+        random_init_P = Random_Init_P(lower_bound, upper_bound, n_procs)
+
+        assert random_init_P.upper_bound == upper_bound
+        assert random_init_P.lower_bound == lower_bound
+
+        assert random_init_P.n_procs == n_procs
+
+        P_0s = random_init_P.get_P_0()
+        assert type(P_0s) == np.ndarray
+        assert len(P_0s) == n_procs
+
+        for p_0 in P_0s:
+            assert lower_bound < p_0 and upper_bound > p_0
+
+    def test_random_init_p_bad_bounds(self):
+        expected_error = "upper bound has to be larger than lower_bound."
+
+        with pytest.raises(ValueError) as exec_info:
+            Random_Init_P(100, 50, 1)
+        assert str(exec_info.value) == expected_error
+
+    def test_random_init_p_neg_bounds(self):
+        expected_error = "bounds have to be strictly positive."
+
+        with pytest.raises(ValueError) as exec_info:
+            Random_Init_P(-50, 0, 1)
+        assert str(exec_info.value) == expected_error
+
+    @pytest.mark.parametrize("last_P", [(True), (False)])
+    def test_data_init_p(self, last_P):
+        rand_array = np.random.random(10)
+        data_init = Data_Init_P(rand_array, last_P=last_P)
+        P_0s = data_init.get_P_0()
+        if last_P:
+            assert P_0s == rand_array[-1]
+        else:
+            assert P_0s == rand_array[0]
+
+
+# TODO test Generic_Geometric_Brownian_Motion
