@@ -11,10 +11,14 @@ from src.stochastic_process_base import (
     CIR_Process,
     CIR_Params,
     Constant_Processes,
+    Constant_Drift,
+    Constant_Sigma,
     Random_Init_P,
     Data_Init_P,
     Generic_Geometric_Brownian_Motion,
 )
+
+from src.stocastic_interfaces import Drift, Sigma, Init_P
 
 
 class Test_Helpers:
@@ -314,6 +318,13 @@ class Test_CIR_Process:
 
 
 class Test_Constant_Process:
+    def inspect_constant_params(self, proc_random, proc_non_random, intervals, params):
+        assert len(proc_non_random) == len(proc_random) == intervals
+        assert np.array_equal(proc_non_random, proc_random)
+
+        for proc in range(0, len(params)):
+            set(proc_non_random[:, proc]) == set(proc_random[:, proc]) == {params[proc]}
+
     def test_single_constant(self):
         intervals = 1000
         constants = 1
@@ -331,7 +342,7 @@ class Test_Constant_Process:
 
     def test_multiple_constant(self):
         intervals = 1000
-        constants = [1.0, 2.0, 3.0]
+        constants = (1.0, 2.0, 3.0)
         n_procs = 3
 
         const_proc = Constant_Processes(intervals, constants=constants, n_procs=n_procs)
@@ -345,10 +356,10 @@ class Test_Constant_Process:
             assert set(process_matrix[:, col]) == {constants[col]}
 
     def test_fail_constants_len(self):
-        expected_error = "If constants is List, n_procs must match List length."
+        expected_error = "If constants is tuple, n_procs must match tuple length."
 
         with pytest.raises(ValueError) as exec_info:
-            Constant_Processes(1, constants=[1, 2], n_procs=4)
+            Constant_Processes(1, constants=(1, 2), n_procs=4)
         assert str(exec_info.value) == expected_error
 
     def test_random_init_p(self):
@@ -393,5 +404,95 @@ class Test_Constant_Process:
         else:
             assert P_0s == rand_array[0]
 
+    def test_constant_sigma(self):
+        intervals = 1000
+        sigma_constants = (0.01, 0.02, 0.015, 0.025)
+        sigma = Constant_Sigma(intervals=intervals, sigma_constants=sigma_constants)
+
+        sigma_random = sigma.get_sigma(random_state=None)
+        sigma_non_random = sigma.get_sigma(random_state=1234)
+
+        self.inspect_constant_params(
+            sigma_random, sigma_non_random, intervals, sigma_constants
+        )
+
+    def test_constant_drift(self):
+        intervals = 1000
+        mu_constants = (0.00014, 0.00012, -0.0002, -0.00007)
+        drift = Constant_Drift(intervals=intervals, mu_constants=mu_constants)
+
+        drift_random = drift.get_mu(random_state=None)
+        drift_non_random = drift.get_mu(random_state=1234)
+
+        self.inspect_constant_params(
+            drift_random, drift_non_random, intervals, mu_constants
+        )
+
 
 # TODO test Generic_Geometric_Brownian_Motion
+class Test_Geometric_Brownian_Motion:
+    @pytest.fixture(scope="function")
+    def constant_geo_brownian(self):
+        intervals = 1000
+        mu_constants = (0.00014, 0.00012, -0.0002, -0.00007)
+        sigma_constants = (0.01, 0.02, 0.015, 0.025)
+        init_lower_bound = 3000
+        init_upper_bound = 10000
+        yield Generic_Geometric_Brownian_Motion(
+            drift=Constant_Drift(intervals=intervals, mu_constants=mu_constants),
+            sigma=Constant_Sigma(intervals=intervals, sigma_constants=sigma_constants),
+            init_P=Random_Init_P(init_lower_bound, init_upper_bound, len(mu_constants)),
+        )
+
+    def test_gbm_bad_proc(self):
+        expected_error = "n_procs for both drift, sigma and init_P has to be the same!"
+
+        with pytest.raises(ValueError) as exec_info:
+            Generic_Geometric_Brownian_Motion(
+                drift=Constant_Drift(intervals=2, mu_constants=(1, 2)),
+                sigma=Constant_Sigma(intervals=3, sigma_constants=(1, 2, 3)),
+                init_P=Random_Init_P(100, 200, 4),
+            )
+
+        assert str(exec_info.value) == expected_error
+
+    def test_constant_bm_random(self, constant_geo_brownian):
+        non_random_1 = copy.deepcopy(constant_geo_brownian)
+        non_random_1.random_state = 1234
+        random = copy.deepcopy(constant_geo_brownian)
+
+        non_random_2 = copy.deepcopy(constant_geo_brownian)
+        non_random_2.random_state = 1234
+
+        P_matrix_non_random_1 = non_random_1.get_P()
+        P_matrix_non_random_2 = non_random_2.get_P()
+        P_matrix_random = random.get_P()
+
+        assert np.array_equal(P_matrix_non_random_1, P_matrix_non_random_2)
+
+        assert not np.array_equal(P_matrix_non_random_1, P_matrix_random)
+
+    def test_constant_bm_corr(self, constant_geo_brownian):
+        constant_geo_brownian.rho = 0
+        P_matrix_no_corr = constant_geo_brownian.get_P()
+
+        no_corr = Test_Helpers.get_avg_corr(P_matrix_no_corr)
+        # NOTE a bit curious why this is so far from 0
+        assert no_corr == pytest.approx(constant_geo_brownian.rho, abs=0.2)
+
+        constant_geo_brownian.rho = 0.8
+        P_matrix_corr = constant_geo_brownian.get_P()
+
+        high_corr = Test_Helpers.get_avg_corr(P_matrix_corr)
+
+        assert high_corr > no_corr
+        assert high_corr == pytest.approx(constant_geo_brownian.rho, abs=0.05)
+
+    def test_get_time_integrals(self, constant_geo_brownian):
+        assert True == False
+
+    def test_get_W_integrals(self, constant_geo_brownian):
+        assert True == False
+
+    def test_get_P(self, constant_geo_brownian):
+        assert True == False

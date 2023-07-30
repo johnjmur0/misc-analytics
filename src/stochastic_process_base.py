@@ -264,7 +264,7 @@ class Constant_Processes:
     def __init__(
         self,
         intervals: int,
-        constants: Union[float, List[float]],
+        constants: Union[float, tuple[float, ...]],
         n_procs: Optional[int] = None,
     ):
         self.intervals = intervals
@@ -277,7 +277,7 @@ class Constant_Processes:
         return self._n_procs_
 
     # TODO random state was in the example as argument, but not used
-    def get_proc(self) -> np.ndarray:
+    def get_proc(self, random_state: Optional[int] = None) -> np.ndarray:
         if isinstance(self.constants, List):
             return (
                 np.repeat(self.constants, self.intervals, axis=0)
@@ -287,29 +287,29 @@ class Constant_Processes:
         return self.constants * np.ones((self.intervals, self._n_procs_))
 
     def _get_n_procs(self) -> int:
-        if isinstance(self.constants, List):
-            if len(self.constants) != self._n_procs:
+        if isinstance(self.constants, tuple):
+            if self._n_procs is not None and len(self.constants) != self._n_procs:
                 raise ValueError(
-                    "If constants is List, n_procs must match List length."
+                    "If constants is tuple, n_procs must match tuple length."
                 )
             else:
                 return len(self.constants)
 
         elif self._n_procs is None:
-            raise ValueError("If constants is not List, n_procs cannot be None.")
+            raise ValueError("If constants is not tuple, n_procs cannot be None.")
         return self._n_procs
 
 
 class Constant_Drift(Constant_Processes):
     def __init__(
         self,
-        intevals: int,
+        intervals: int,
         mu_constants: Union[float, tuple[float, ...]],
         n_procs: Optional[int] = None,
     ) -> None:
-        super().__init__(intevals, mu_constants, n_procs)
+        super().__init__(intervals, mu_constants, n_procs)
         self.mu_constants = mu_constants
-        self.intevals = intevals
+        self.intevals = intervals
         self._n_procs = n_procs
 
     @property
@@ -412,11 +412,30 @@ class Generic_Geometric_Brownian_Motion:
         self.intervals, self.n_procs = self.drift.sample_size, self.drift.n_procs
         self.brownian_motion = Brownian_Motion(seed=random_state)
 
+    @property
+    def rho(self) -> float:
+        return self._rho
+
+    @rho.setter
+    def rho(self, rho: float) -> None:
+        self._rho = rho
+
+    @property
+    def random_state(self) -> Union[float, int]:
+        return self._random_state
+
+    @random_state.setter
+    def random_state(self, random_state: Union[float, int]) -> None:
+        self._random_state = random_state
+
     def get_P(self) -> np.ndarray:
         sigmas = self.sigma.get_sigma(self.random_state)
-        time_integrals = self._get_time_integrals(sigmas, self.random_state)
-        W_integrals = self._get_W_integrals(sigmas, self.random_state)
         P_0s = self.init_P.get_P_0(self.random_state)
+
+        time_integrals = self._get_time_integrals(sigmas, self.random_state)
+        # NOTE this eventually calls base BM, which expects random_state as class property
+        W_integrals = self._get_W_integrals(sigmas)
+
         return P_0s[None, :] * np.exp(time_integrals + W_integrals)
 
     def _get_time_integrals(
@@ -426,11 +445,9 @@ class Generic_Geometric_Brownian_Motion:
         integrals = np.cumsum(mus - sigmas**2 / 2, axis=0)
         return np.insert(integrals, 0, np.zeros(mus.shape[1]), axis=0)[:-1]
 
-    def _get_W_integrals(
-        self, sigmas: np.ndarray, random_state: Optional[int]
-    ) -> np.ndarray:
+    def _get_W_integrals(self, sigmas: np.ndarray) -> np.ndarray:
         dWs = self.brownian_motion.get_corr_dW_matrix(
-            self.intervals, self.n_procs, self.rho, random_state
+            self.intervals, self.n_procs, self.rho
         )
         integrals = np.cumsum(sigmas * dWs, axis=0)
         return np.insert(integrals, 0, np.zeros(dWs.shape[1]), axis=0)[:-1]
