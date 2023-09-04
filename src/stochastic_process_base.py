@@ -434,6 +434,7 @@ class Generic_Geometric_Brownian_Motion:
 
         time_integrals = self._get_time_integrals(sigmas, self.random_state)
         # NOTE this eventually calls base BM, which expects random_state as class property
+        # So shouldn't _get_time_integrals just use the class property?
         W_integrals = self._get_W_integrals(sigmas)
 
         return P_0s[None, :] * np.exp(time_integrals + W_integrals)

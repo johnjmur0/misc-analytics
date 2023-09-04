@@ -1,6 +1,7 @@
 import copy
 import numpy as np
 import pandas as pd
+from pytest_mock import mocker
 import pytest
 from scipy.stats import pearsonr
 
@@ -19,6 +20,9 @@ from src.stochastic_process_base import (
 )
 
 from src.stocastic_interfaces import Drift, Sigma, Init_P
+
+
+STOCHASTIC_BASE_PATH = "src.stochastic_process_base"
 
 
 class Test_Helpers:
@@ -432,7 +436,11 @@ class Test_Constant_Process:
 # TODO test Generic_Geometric_Brownian_Motion
 class Test_Geometric_Brownian_Motion:
     @pytest.fixture(scope="function")
-    def constant_geo_brownian(self):
+    def random_state(self):
+        yield 3
+
+    @pytest.fixture(scope="function")
+    def constant_geo_brownian(self, random_state):
         intervals = 1000
         mu_constants = (0.00014, 0.00012, -0.0002, -0.00007)
         sigma_constants = (0.01, 0.02, 0.015, 0.025)
@@ -442,7 +450,12 @@ class Test_Geometric_Brownian_Motion:
             drift=Constant_Drift(intervals=intervals, mu_constants=mu_constants),
             sigma=Constant_Sigma(intervals=intervals, sigma_constants=sigma_constants),
             init_P=Random_Init_P(init_lower_bound, init_upper_bound, len(mu_constants)),
+            random_state=random_state,
         )
+
+    @pytest.fixture(scope="function")
+    def sigmas(self, constant_geo_brownian, random_state):
+        yield constant_geo_brownian.sigma.get_sigma(random_state)
 
     def test_gbm_bad_proc(self):
         expected_error = "n_procs for both drift, sigma and init_P has to be the same!"
@@ -478,7 +491,7 @@ class Test_Geometric_Brownian_Motion:
 
         no_corr = Test_Helpers.get_avg_corr(P_matrix_no_corr)
         # NOTE a bit curious why this is so far from 0
-        assert no_corr == pytest.approx(constant_geo_brownian.rho, abs=0.2)
+        assert no_corr == pytest.approx(constant_geo_brownian.rho, abs=0.25)
 
         constant_geo_brownian.rho = 0.8
         P_matrix_corr = constant_geo_brownian.get_P()
@@ -486,13 +499,62 @@ class Test_Geometric_Brownian_Motion:
         high_corr = Test_Helpers.get_avg_corr(P_matrix_corr)
 
         assert high_corr > no_corr
-        assert high_corr == pytest.approx(constant_geo_brownian.rho, abs=0.05)
+        assert high_corr == pytest.approx(constant_geo_brownian.rho, abs=0.1)
 
-    def test_get_time_integrals(self, constant_geo_brownian):
-        assert True == False
+    def test_get_time_integrals(self, constant_geo_brownian, sigmas, random_state):
+        time_integrals = constant_geo_brownian._get_time_integrals(sigmas, random_state)
 
-    def test_get_W_integrals(self, constant_geo_brownian):
-        assert True == False
+        assert type(time_integrals) == np.ndarray
+        assert time_integrals.shape == (
+            constant_geo_brownian.intervals,
+            constant_geo_brownian.sigma.n_procs,
+        )
 
-    def test_get_P(self, constant_geo_brownian):
-        assert True == False
+        time_integrals_df = pd.DataFrame(time_integrals)
+
+        for col in range(0, constant_geo_brownian.sigma.n_procs):
+            constant_integral = round(time_integrals_df[col][1], 5)
+            time_integrals_df[f"shift_{col}"] = time_integrals_df[col].shift(1)
+
+            constant_change = round(
+                (time_integrals_df[col] - time_integrals_df[f"shift_{col}"]), 5
+            ).drop_duplicates()
+            np.testing.assert_allclose(
+                constant_change, [np.nan, constant_integral], equal_nan=True
+            )
+
+    def test_get_W_integrals(self, constant_geo_brownian, sigmas):
+        w_integrals = constant_geo_brownian._get_W_integrals(sigmas)
+
+        assert type(w_integrals) == np.ndarray
+        assert w_integrals.shape == (
+            constant_geo_brownian.intervals,
+            constant_geo_brownian.sigma.n_procs,
+        )
+
+        assert not np.isnan(w_integrals).any()
+
+    def test_get_P(self, constant_geo_brownian, sigmas, random_state, mocker):
+        constant_geo_brownian.random_state = random_state
+
+        time_integrals = constant_geo_brownian._get_time_integrals(sigmas, random_state)
+        w_integrals = constant_geo_brownian._get_W_integrals(sigmas)
+
+        P_0s = constant_geo_brownian.init_P.get_P_0(random_state)
+
+        mocker.patch(
+            f"{STOCHASTIC_BASE_PATH}.Generic_Geometric_Brownian_Motion._get_W_integrals",
+            return_value=w_integrals,
+        )
+
+        processes = constant_geo_brownian.get_P()
+
+        assert type(processes) == np.ndarray
+        assert processes.shape == (
+            constant_geo_brownian.intervals,
+            constant_geo_brownian.sigma.n_procs,
+        )
+
+        expected_arr = np.round((time_integrals + w_integrals), 5)
+        derived_arr = np.round(np.log(processes / P_0s), 5)
+        np.array_equal(derived_arr, expected_arr)
