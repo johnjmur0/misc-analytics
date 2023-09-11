@@ -17,6 +17,7 @@ from src.stochastic_process_base import (
     Random_Init_P,
     Data_Init_P,
     Generic_Geometric_Brownian_Motion,
+    OU_Drift,
 )
 
 from src.stocastic_interfaces import Drift, Sigma, Init_P
@@ -34,6 +35,16 @@ class Test_Helpers:
             .groupby("variable")
             .agg({"value": "mean"})["value"]
             .mean()
+        )
+
+    def get_avg_variance(corr_matrix):
+        return (
+            pd.DataFrame(np.cumsum(corr_matrix, axis=0))
+            .reset_index(drop=False)
+            .melt(id_vars=["index"])
+            .groupby(["index"])
+            .var()
+            .mean()[0]
         )
 
 
@@ -98,27 +109,13 @@ class Test_Brownian_Motion:
             intervals=100, n_procs=50, rho=0.9
         )
 
-        avg_variance_closer = (
-            pd.DataFrame(np.cumsum(corr_matrix_closer, axis=0))
-            .reset_index(drop=False)
-            .melt(id_vars=["index"])
-            .groupby(["index"])
-            .var()
-            .mean()[0]
-        )
+        avg_variance_closer = Test_Helpers.avg_variance_farther(corr_matrix_closer)
 
         corr_matrix_farther = stoch_instance.get_corr_dW_matrix(
             intervals=100, n_procs=50, rho=0.1
         )
 
-        avg_variance_farther = (
-            pd.DataFrame(np.cumsum(corr_matrix_farther, axis=0))
-            .reset_index(drop=False)
-            .melt(id_vars=["index"])
-            .groupby(["index"])
-            .var()
-            .mean()[0]
-        )
+        avg_variance_farther = Test_Helpers.avg_variance_farther(corr_matrix_farther)
 
         assert avg_variance_closer < avg_variance_farther
 
@@ -558,3 +555,29 @@ class Test_Geometric_Brownian_Motion:
         expected_arr = np.round((time_integrals + w_integrals), 5)
         derived_arr = np.round(np.log(processes / P_0s), 5)
         np.array_equal(derived_arr, expected_arr)
+
+
+class Test_Generic_Brownian_Motion:
+    def test_ou_drift_mu(self):
+        ou_params = Stochastic_Params_Base(
+            mean_reversion=0.7, asymptotic_mean=10, std_dev=0.5
+        )
+
+        # TODO for some reason I can't go over 1k intervals here?
+        intervals = 1_000
+        n_proc = 5
+        rho = 0.7
+        ou_drift = OU_Drift(
+            intervals=intervals,
+            OU_params=ou_params,
+            n_procs=n_proc,
+            rho=rho,
+            seed=12345,
+        )
+
+        ou_sims = ou_drift.get_mu()
+
+        assert (intervals, n_proc) == ou_sims.shape
+
+        corr = Test_Helpers.get_avg_corr(ou_sims)
+        assert corr == pytest.approx(rho, 0.1)

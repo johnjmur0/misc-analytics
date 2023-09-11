@@ -466,3 +466,41 @@ class Generic_Geometric_Brownian_Motion:
                 "sample size T for both drift and sigma has to be the same!"
             )
         return None
+
+
+class OU_Drift:
+    def __init__(
+        self,
+        intervals: int,
+        OU_params: Union[Stochastic_Params_Base, tuple[Stochastic_Params_Base, ...]],
+        n_procs: Optional[int] = None,
+        rho: Optional[float] = None,
+        seed: Optional[float] = None,
+    ) -> None:
+        self.intervals = intervals
+        self._n_procs = n_procs
+        self.rho = rho
+
+        self.ou_process = OU_Process(seed, OU_params)
+
+        self._n_procs_ = self._get_n_procs()
+
+    @property
+    def sample_size(self) -> int:
+        return self.intervals
+
+    @property
+    def n_procs(self) -> int:
+        return self._n_procs_
+
+    def get_mu(self) -> np.ndarray:
+        return self.ou_process.create_correlated_sims(
+            self.intervals, self._n_procs_, self.rho
+        )
+
+    def _get_n_procs(self) -> int:
+        if isinstance(self.ou_process.model_params, tuple):
+            return len(self.ou_process.model_params)
+        elif self._n_procs is None:
+            raise ValueError("If OU_params is not tuple, n_procs cannot be None.")
+        return self._n_procs
