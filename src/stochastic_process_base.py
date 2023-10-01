@@ -195,6 +195,7 @@ class OU_Process(Stocashtic_Process_Base):
         return integral_W
 
 
+# TODO should probably make OU_Params class for consistency instead of just using Stocastic_Params_Base
 @dataclass
 class CIR_Params(Stochastic_Params_Base):
     # NOTE super fun, haven't seen post_init before!
@@ -406,6 +407,7 @@ class Generic_Geometric_Brownian_Motion:
         self.sigma = sigma
         self.init_P = init_P
         self.rho = rho
+        # TODO change property name to seed or random_state everywhere
         self.random_state = random_state
 
         self._validate_drift_sigma_init_P()
@@ -429,8 +431,9 @@ class Generic_Geometric_Brownian_Motion:
         self._random_state = random_state
 
     def get_P(self) -> np.ndarray:
-        sigmas = self.sigma.get_sigma(self.random_state)
-        P_0s = self.init_P.get_P_0(self.random_state)
+        # TODO / NOTE random state gets set on sigma, drift, init b/c they all have their own BM
+        sigmas = self.sigma.get_sigma()
+        P_0s = self.init_P.get_P_0()
 
         time_integrals = self._get_time_integrals(sigmas, self.random_state)
         # NOTE this eventually calls base BM, which expects random_state as class property
@@ -472,7 +475,7 @@ class OU_Drift:
     def __init__(
         self,
         intervals: int,
-        OU_params: Union[Stochastic_Params_Base, tuple[Stochastic_Params_Base, ...]],
+        OU_params: Union[Stochastic_Params_Base, List[Stochastic_Params_Base]],
         n_procs: Optional[int] = None,
         rho: Optional[float] = None,
         seed: Optional[float] = None,
@@ -481,7 +484,7 @@ class OU_Drift:
         self._n_procs = n_procs
         self.rho = rho
 
-        self.ou_process = OU_Process(seed, OU_params)
+        self.OU_process = OU_Process(seed, OU_params)
 
         self._n_procs_ = self._get_n_procs()
 
@@ -493,14 +496,51 @@ class OU_Drift:
     def n_procs(self) -> int:
         return self._n_procs_
 
-    def get_mu(self) -> np.ndarray:
-        return self.ou_process.create_correlated_sims(
+    def get_mu(self, random_state: Optional[int] = None) -> np.ndarray:
+        return self.OU_process.create_correlated_sims(
             self.intervals, self._n_procs_, self.rho
         )
 
     def _get_n_procs(self) -> int:
-        if isinstance(self.ou_process.model_params, tuple):
-            return len(self.ou_process.model_params)
+        if isinstance(self.OU_process.model_params, list):
+            return len(self.OU_process.model_params)
         elif self._n_procs is None:
-            raise ValueError("If OU_params is not tuple, n_procs cannot be None.")
+            raise ValueError("If OU_params is not list, n_procs cannot be None.")
+        return self._n_procs
+
+
+class CIR_Sigma:
+    def __init__(
+        self,
+        intervals: int,
+        CIR_params: Union[CIR_Params, List[CIR_Params]],
+        n_procs: Optional[int] = None,
+        rho: Optional[float] = None,
+        seed: Optional[float] = None,
+    ) -> None:
+        self.intervals = intervals
+        self._n_procs = n_procs
+        self.rho = rho
+
+        self.CIR_process = CIR_Process(seed, CIR_params)
+        self._n_procs_ = self._get_n_procs()
+
+    @property
+    def sample_size(self) -> int:
+        return self.intervals
+
+    @property
+    def n_procs(self) -> int:
+        return self._n_procs_
+
+    def get_sigma(self) -> np.ndarray:
+        return self.CIR_process.create_correlated_sims(
+            self.intervals, self._n_procs_, self.rho
+        )
+
+    def _get_n_procs(self) -> int:
+        if isinstance(self.CIR_process.model_params, list):
+            return len(self.CIR_process.model_params)
+        elif self._n_procs is None:
+            raise ValueError("If CIR_params is not list, n_procs cannot be None.")
         return self._n_procs

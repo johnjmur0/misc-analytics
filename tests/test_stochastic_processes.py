@@ -18,6 +18,7 @@ from src.stochastic_process_base import (
     Data_Init_P,
     Generic_Geometric_Brownian_Motion,
     OU_Drift,
+    CIR_Sigma,
 )
 
 from src.stocastic_interfaces import Drift, Sigma, Init_P
@@ -109,13 +110,13 @@ class Test_Brownian_Motion:
             intervals=100, n_procs=50, rho=0.9
         )
 
-        avg_variance_closer = Test_Helpers.avg_variance_farther(corr_matrix_closer)
+        avg_variance_closer = Test_Helpers.get_avg_variance(corr_matrix_closer)
 
         corr_matrix_farther = stoch_instance.get_corr_dW_matrix(
             intervals=100, n_procs=50, rho=0.1
         )
 
-        avg_variance_farther = Test_Helpers.avg_variance_farther(corr_matrix_farther)
+        avg_variance_farther = Test_Helpers.get_avg_variance(corr_matrix_farther)
 
         assert avg_variance_closer < avg_variance_farther
 
@@ -558,8 +559,9 @@ class Test_Geometric_Brownian_Motion:
 
 
 class Test_Generic_Brownian_Motion:
+    # TODO should test multiple params
     def test_ou_drift_mu(self):
-        ou_params = Stochastic_Params_Base(
+        OU_params = Stochastic_Params_Base(
             mean_reversion=0.7, asymptotic_mean=10, std_dev=0.5
         )
 
@@ -569,7 +571,7 @@ class Test_Generic_Brownian_Motion:
         rho = 0.7
         ou_drift = OU_Drift(
             intervals=intervals,
-            OU_params=ou_params,
+            OU_params=OU_params,
             n_procs=n_proc,
             rho=rho,
             seed=12345,
@@ -581,3 +583,77 @@ class Test_Generic_Brownian_Motion:
 
         corr = Test_Helpers.get_avg_corr(ou_sims)
         assert corr == pytest.approx(rho, 0.1)
+
+    # TODO test single param
+    def test_cir_sigma(self):
+        CIR_params = [
+            CIR_Params(mean_reversion=0.012, asymptotic_mean=0.019, std_dev=0.0025),
+            CIR_Params(mean_reversion=0.013, asymptotic_mean=0.017, std_dev=0.0021),
+            CIR_Params(mean_reversion=0.015, asymptotic_mean=0.021, std_dev=0.0017),
+            CIR_Params(mean_reversion=0.01, asymptotic_mean=0.027, std_dev=0.0029),
+        ]
+
+        # TODO for some reason I can't go over 1k intervals here?
+        intervals = 1_000
+        rho = 0.7
+        CIR_sigma = CIR_Sigma(intervals, CIR_params, rho=rho, seed=12345)
+
+        cir_sims = CIR_sigma.get_sigma()
+
+        assert (intervals, len(CIR_params)) == cir_sims.shape
+
+        corr = Test_Helpers.get_avg_corr(cir_sims)
+        assert corr == pytest.approx(rho, 0.1)
+
+    def test_generic_full(self):
+        CIR_params = [
+            CIR_Params(mean_reversion=0.012, asymptotic_mean=0.019, std_dev=0.0025),
+            CIR_Params(mean_reversion=0.013, asymptotic_mean=0.017, std_dev=0.0021),
+            CIR_Params(mean_reversion=0.015, asymptotic_mean=0.021, std_dev=0.0017),
+            CIR_Params(mean_reversion=0.01, asymptotic_mean=0.027, std_dev=0.0029),
+        ]
+
+        OU_params = [
+            Stochastic_Params_Base(
+                mean_reversion=0.0097, asymptotic_mean=0.00014, std_dev=0.00028
+            ),
+            Stochastic_Params_Base(
+                mean_reversion=0.008, asymptotic_mean=-0.0002, std_dev=0.0003
+            ),
+            Stochastic_Params_Base(
+                mean_reversion=0.013, asymptotic_mean=0.0, std_dev=0.00015
+            ),
+            Stochastic_Params_Base(
+                mean_reversion=0.007, asymptotic_mean=0.0, std_dev=0.0001
+            ),
+        ]
+
+        # TODO for some reason I can't go over 1k intervals here?
+        intervals = 1_000
+        CIR_rho = 0.7
+        OU_rho = 0.6
+        lower_bound = 3_000
+        upper_bound = 10_000
+        seed = 12345
+        n_procs = len(OU_params)
+
+        OU_drift = OU_Drift(intervals, OU_params, rho=OU_rho)
+        CIR_sigma = CIR_Sigma(intervals, CIR_params, rho=CIR_rho)
+        random_init_P = Random_Init_P(
+            lower_bound=lower_bound, upper_bound=upper_bound, n_procs=n_procs
+        )
+
+        geo_rho = 0.8
+        gen_geo_brownian = Generic_Geometric_Brownian_Motion(
+            drift=OU_drift,
+            sigma=CIR_sigma,
+            init_P=random_init_P,
+            rho=geo_rho,
+        )
+
+        P_matrix = gen_geo_brownian.get_P()
+
+        assert (intervals, n_procs) == P_matrix.shape
+
+        corr = Test_Helpers.get_avg_corr(P_matrix)
+        assert corr == pytest.approx(geo_rho, 0.2)
