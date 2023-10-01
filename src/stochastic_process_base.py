@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Optional, Union, List, NoReturn, Any, Protocol
+from typing import Optional, Union, List, NoReturn, Any, Protocol, Callable
 from dataclasses import dataclass
 from sklearn.linear_model import LinearRegression
 import numpy as np
@@ -470,6 +470,67 @@ class Generic_Geometric_Brownian_Motion:
             )
         return None
 
+    def _estimate_params_base(
+        self,
+        process_matrix: np.ndarray,
+        rolling_window: int,
+        stat_func: Callable,
+        estimate_params_func: Callable,
+    ):
+        diffusion_increments = np.diff(process_matrix, axis=0) / process_matrix[:-1, :]
+
+        rolled_increments = np.lib.stride_tricks.sliding_window_view(
+            diffusion_increments, rolling_window, axis=0
+        )
+
+        rolling_stat = stat_func(rolled_increments, axis=-1)
+
+        return [
+            estimate_params_func(rolling_stat[:, i])
+            for i in range(rolling_stat.shape[1])
+        ]
+
+    def estimate_drift_OU_params(
+        self, process_matrix: np.ndarray, rolling_window: int
+    ) -> List[Stochastic_Params_Base]:
+        return self._estimate_params_base(
+            process_matrix,
+            rolling_window,
+            stat_func=np.mean,
+            estimate_params_func=self.drift.OU_process.estimate_params,
+        )
+
+    def estimate_sigma_CIR_params(
+        self, process_matrix: np.ndarray, rolling_window: int
+    ) -> List[Stochastic_Params_Base]:
+        return self._estimate_params_base(
+            process_matrix,
+            rolling_window,
+            stat_func=np.std,
+            estimate_params_func=self.sigma.CIR_process.estimate_params,
+        )
+
+    def _estimate_correlation_base(
+        self, process_matrix: np.ndarray, rolling_window: int, stat_func: Callable
+    ) -> float:
+        diffusion_increments = np.diff(process_matrix, axis=0) / process_matrix[:-1, :]
+
+        rolled_increments = np.lib.stride_tricks.sliding_window_view(
+            diffusion_increments, rolling_window, axis=0
+        )
+        rolling_mus = stat_func(rolled_increments, axis=-1)
+        corr_mat = np.corrcoef(rolling_mus, rowvar=False)
+
+        np.fill_diagonal(corr_mat, np.nan)
+        return float(np.nanmean(corr_mat))
+
+    def estimate_drift_correlation(self, process_matrix: np.ndarray, rolling_window: int):
+
+        return self._estimate_correlation_base(process_matrix, rolling_window, stat_func=np.mean)
+
+    def estimate_sigma_correlation(self, process_matrix: np.ndarray, rolling_window: int):
+
+        return self._estimate_correlation_base(process_matrix, rolling_window, stat_func=np.std)
 
 class OU_Drift:
     def __init__(

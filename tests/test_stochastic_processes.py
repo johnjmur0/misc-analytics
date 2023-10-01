@@ -559,6 +559,62 @@ class Test_Geometric_Brownian_Motion:
 
 
 class Test_Generic_Brownian_Motion:
+    @pytest.fixture()
+    def OU_drift(self):
+        OU_params = [
+            Stochastic_Params_Base(
+                mean_reversion=0.0097, asymptotic_mean=0.00014, std_dev=0.00028
+            ),
+            Stochastic_Params_Base(
+                mean_reversion=0.008, asymptotic_mean=-0.0002, std_dev=0.0003
+            ),
+            Stochastic_Params_Base(
+                mean_reversion=0.013, asymptotic_mean=0.0, std_dev=0.00015
+            ),
+            Stochastic_Params_Base(
+                mean_reversion=0.007, asymptotic_mean=0.0, std_dev=0.0001
+            ),
+        ]
+
+        intervals = 1_000
+        OU_rho = 0.6
+
+        yield OU_Drift(intervals, OU_params, rho=OU_rho)
+
+    @pytest.fixture()
+    def CIR_sigma(self):
+        CIR_params = [
+            CIR_Params(mean_reversion=0.012, asymptotic_mean=0.019, std_dev=0.0025),
+            CIR_Params(mean_reversion=0.013, asymptotic_mean=0.017, std_dev=0.0021),
+            CIR_Params(mean_reversion=0.015, asymptotic_mean=0.021, std_dev=0.0017),
+            CIR_Params(mean_reversion=0.01, asymptotic_mean=0.027, std_dev=0.0029),
+        ]
+
+        intervals = 1_000
+        CIR_rho = 0.7
+        yield CIR_Sigma(intervals, CIR_params, rho=CIR_rho)
+
+    @pytest.fixture()
+    def random_init_P(self, CIR_sigma):
+        lower_bound = 3_000
+        upper_bound = 10_000
+
+        yield Random_Init_P(
+            lower_bound=lower_bound,
+            upper_bound=upper_bound,
+            n_procs=CIR_sigma._n_procs_,
+        )
+
+    @pytest.fixture()
+    def generic_geo_brownian(self, OU_drift, CIR_sigma, random_init_P):
+        geo_rho = 0.8
+        yield Generic_Geometric_Brownian_Motion(
+            drift=OU_drift,
+            sigma=CIR_sigma,
+            init_P=random_init_P,
+            rho=geo_rho,
+        )
+
     # TODO should test multiple params
     def test_ou_drift_mu(self):
         OU_params = Stochastic_Params_Base(
@@ -585,75 +641,66 @@ class Test_Generic_Brownian_Motion:
         assert corr == pytest.approx(rho, 0.1)
 
     # TODO test single param
-    def test_cir_sigma(self):
-        CIR_params = [
-            CIR_Params(mean_reversion=0.012, asymptotic_mean=0.019, std_dev=0.0025),
-            CIR_Params(mean_reversion=0.013, asymptotic_mean=0.017, std_dev=0.0021),
-            CIR_Params(mean_reversion=0.015, asymptotic_mean=0.021, std_dev=0.0017),
-            CIR_Params(mean_reversion=0.01, asymptotic_mean=0.027, std_dev=0.0029),
-        ]
-
-        # TODO for some reason I can't go over 1k intervals here?
-        intervals = 1_000
-        rho = 0.7
-        CIR_sigma = CIR_Sigma(intervals, CIR_params, rho=rho, seed=12345)
-
+    def test_cir_sigma(self, CIR_sigma):
         cir_sims = CIR_sigma.get_sigma()
 
-        assert (intervals, len(CIR_params)) == cir_sims.shape
+        assert (CIR_sigma.intervals, CIR_sigma._n_procs_) == cir_sims.shape
 
         corr = Test_Helpers.get_avg_corr(cir_sims)
-        assert corr == pytest.approx(rho, 0.1)
+        assert corr == pytest.approx(CIR_sigma.rho, 0.1)
 
-    def test_generic_full(self):
-        CIR_params = [
-            CIR_Params(mean_reversion=0.012, asymptotic_mean=0.019, std_dev=0.0025),
-            CIR_Params(mean_reversion=0.013, asymptotic_mean=0.017, std_dev=0.0021),
-            CIR_Params(mean_reversion=0.015, asymptotic_mean=0.021, std_dev=0.0017),
-            CIR_Params(mean_reversion=0.01, asymptotic_mean=0.027, std_dev=0.0029),
-        ]
+    def test_generic_full(self, OU_drift, generic_geo_brownian):
+        P_matrix = generic_geo_brownian.get_P()
 
-        OU_params = [
-            Stochastic_Params_Base(
-                mean_reversion=0.0097, asymptotic_mean=0.00014, std_dev=0.00028
-            ),
-            Stochastic_Params_Base(
-                mean_reversion=0.008, asymptotic_mean=-0.0002, std_dev=0.0003
-            ),
-            Stochastic_Params_Base(
-                mean_reversion=0.013, asymptotic_mean=0.0, std_dev=0.00015
-            ),
-            Stochastic_Params_Base(
-                mean_reversion=0.007, asymptotic_mean=0.0, std_dev=0.0001
-            ),
-        ]
-
-        # TODO for some reason I can't go over 1k intervals here?
-        intervals = 1_000
-        CIR_rho = 0.7
-        OU_rho = 0.6
-        lower_bound = 3_000
-        upper_bound = 10_000
-        seed = 12345
-        n_procs = len(OU_params)
-
-        OU_drift = OU_Drift(intervals, OU_params, rho=OU_rho)
-        CIR_sigma = CIR_Sigma(intervals, CIR_params, rho=CIR_rho)
-        random_init_P = Random_Init_P(
-            lower_bound=lower_bound, upper_bound=upper_bound, n_procs=n_procs
-        )
-
-        geo_rho = 0.8
-        gen_geo_brownian = Generic_Geometric_Brownian_Motion(
-            drift=OU_drift,
-            sigma=CIR_sigma,
-            init_P=random_init_P,
-            rho=geo_rho,
-        )
-
-        P_matrix = gen_geo_brownian.get_P()
-
-        assert (intervals, n_procs) == P_matrix.shape
+        assert (OU_drift.intervals, OU_drift._n_procs_) == P_matrix.shape
 
         corr = Test_Helpers.get_avg_corr(P_matrix)
-        assert corr == pytest.approx(geo_rho, 0.2)
+        assert corr == pytest.approx(generic_geo_brownian.rho, 0.2)
+
+    def test_estimate_drift_OU_params(self, generic_geo_brownian, OU_drift):
+        P_matrix = generic_geo_brownian.get_P()
+
+        OU_estimation = generic_geo_brownian.estimate_drift_OU_params(
+            P_matrix, rolling_window=250
+        )
+
+        assert type(OU_estimation) == list
+        assert len(OU_estimation) == len(OU_drift.OU_process.model_params)
+
+        for i in range(0, len(OU_estimation)):
+            assert type(OU_estimation[i]) == Stochastic_Params_Base
+
+    def test_estimate_sigma_CIR_params(self, generic_geo_brownian, CIR_sigma):
+        P_matrix = generic_geo_brownian.get_P()
+
+        CIR_estimation = generic_geo_brownian.estimate_sigma_CIR_params(
+            P_matrix, rolling_window=250
+        )
+
+        assert type(CIR_estimation) == list
+        assert len(CIR_estimation) == len(CIR_sigma.CIR_process.model_params)
+
+        for i in range(0, len(CIR_estimation)):
+            assert type(CIR_estimation[i]) == CIR_Params
+
+    def test_estimate_OU_corr(self, generic_geo_brownian, OU_drift):
+        P_matrix = generic_geo_brownian.get_P()
+
+        OU_corr_estimation = generic_geo_brownian.estimate_drift_correlation(
+            P_matrix, rolling_window=100
+        )
+
+        assert type(OU_corr_estimation) == float
+
+        assert OU_corr_estimation == pytest.approx(OU_drift.rho, 0.5)
+
+    def test_estimate_CIR_corr(self, generic_geo_brownian, CIR_sigma):
+        P_matrix = generic_geo_brownian.get_P()
+
+        CIR_corr_estimation = generic_geo_brownian.estimate_sigma_correlation(
+            P_matrix, rolling_window=100
+        )
+
+        assert type(CIR_corr_estimation) == float
+
+        assert CIR_corr_estimation == pytest.approx(CIR_sigma.rho, 0.5)
