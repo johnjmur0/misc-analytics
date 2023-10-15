@@ -3,7 +3,7 @@ from typing import Optional, Union, List, NoReturn, Any, Protocol, Callable
 from dataclasses import dataclass
 from sklearn.linear_model import LinearRegression
 import numpy as np
-from src.stocastic_interfaces import Drift, Sigma, Init_P
+from src.stochastic_processes.stocastic_interfaces import Drift, Sigma, Init_P
 
 
 class Brownian_Motion:
@@ -524,13 +524,20 @@ class Generic_Geometric_Brownian_Motion:
         np.fill_diagonal(corr_mat, np.nan)
         return float(np.nanmean(corr_mat))
 
-    def estimate_drift_correlation(self, process_matrix: np.ndarray, rolling_window: int):
+    def estimate_drift_correlation(
+        self, process_matrix: np.ndarray, rolling_window: int
+    ):
+        return self._estimate_correlation_base(
+            process_matrix, rolling_window, stat_func=np.mean
+        )
 
-        return self._estimate_correlation_base(process_matrix, rolling_window, stat_func=np.mean)
+    def estimate_sigma_correlation(
+        self, process_matrix: np.ndarray, rolling_window: int
+    ):
+        return self._estimate_correlation_base(
+            process_matrix, rolling_window, stat_func=np.std
+        )
 
-    def estimate_sigma_correlation(self, process_matrix: np.ndarray, rolling_window: int):
-
-        return self._estimate_correlation_base(process_matrix, rolling_window, stat_func=np.std)
 
 class OU_Drift:
     def __init__(

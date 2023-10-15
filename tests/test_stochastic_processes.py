@@ -5,7 +5,7 @@ from pytest_mock import mocker
 import pytest
 from scipy.stats import pearsonr
 
-from src.stochastic_process_base import (
+from src.stochastic_processes.stochastic_process_base import (
     Brownian_Motion,
     Stochastic_Params_Base,
     OU_Process,
@@ -21,7 +21,7 @@ from src.stochastic_process_base import (
     CIR_Sigma,
 )
 
-from src.stocastic_interfaces import Drift, Sigma, Init_P
+from src.stochastic_processes.stocastic_interfaces import Drift, Sigma, Init_P
 
 
 STOCHASTIC_BASE_PATH = "src.stochastic_process_base"
