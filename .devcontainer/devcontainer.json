@@ -1,0 +1,15 @@
+{
+	"image": "misc-analytics:latest",
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"ms-python.python",
+				"ms-python.black-formatter",
+				"ms-python.isort",
+				"yzhang.markdown-all-in-one",
+				"ms-python.vscode-pylance",
+				"redhat.vscode-yaml"
+			]
+		}
+	}
+}

@@ -1,0 +1,28 @@
+name: misc-analytics
+channels:
+  - conda-forge
+dependencies:
+  - black
+  - dash
+  - dash-bootstrap-components
+  - dash-bootstrap-templates
+  - flask
+  - glpk
+  - joblib
+  - keras
+  - matplotlib
+  - numpy
+  - pandas
+  - plotly
+  - pyomo
+  - pytest
+  - pytest-mock
+  - python
+  - requests
+  - scikit-learn
+  - scipy
+  - seaborn
+  - statsmodels
+  - tensorflow
+  - pip:
+      pip
